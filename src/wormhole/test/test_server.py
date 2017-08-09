@@ -3,13 +3,85 @@ import os, json, itertools, time
 import mock
 from twisted.trial import unittest
 from twisted.python import log
-from twisted.internet import reactor, defer
+from twisted.internet import reactor, defer, endpoints
 from twisted.internet.defer import inlineCallbacks, returnValue
 from autobahn.twisted import websocket
 from .common import ServerBase
 from ..server import server, rendezvous
 from ..server.rendezvous import Usage, SidedMessage
 from ..server.database import get_db
+
+def easy_relay(
+        rendezvous_web_port=str("tcp:0"),
+        transit_port=str("tcp:0"),
+        advertise_version=None,
+        **kwargs
+):
+    return server.RelayServer(
+        rendezvous_web_port,
+        transit_port,
+        advertise_version,
+        **kwargs
+    )
+
+class RLimits(unittest.TestCase):
+    def test_rlimit(self):
+        def patch_s(name, *args, **kwargs):
+            return mock.patch("wormhole.server.server." + name, *args, **kwargs)
+        # We never start this, so the endpoints can be fake.
+        # serverFromString() requires bytes on py2 and str on py3, so this
+        # is easier than just passing "tcp:0"
+        ep = endpoints.TCP4ServerEndpoint(None, 0)
+        with patch_s("endpoints.serverFromString", return_value=ep):
+            s = server.RelayServer("fake", None, None)
+        fakelog = []
+        def checklog(*expected):
+            self.assertEqual(fakelog, list(expected))
+            fakelog[:] = []
+        NF = "NOFILE"
+        mock_NF = patch_s("RLIMIT_NOFILE", NF)
+
+        with patch_s("log.msg", fakelog.append):
+            with patch_s("getrlimit", None):
+                s.increase_rlimits()
+            checklog("unable to import 'resource', leaving rlimit alone")
+
+            with mock_NF:
+                with patch_s("getrlimit", return_value=(20000, 30000)) as gr:
+                    s.increase_rlimits()
+                    self.assertEqual(gr.mock_calls, [mock.call(NF)])
+                    checklog("RLIMIT_NOFILE.soft was 20000, leaving it alone")
+
+                with patch_s("getrlimit", return_value=(10, 30000)) as gr:
+                    with patch_s("setrlimit", side_effect=TypeError("other")):
+                        with patch_s("log.err") as err:
+                            s.increase_rlimits()
+                        self.assertEqual(err.mock_calls, [mock.call()])
+                        checklog("changing RLIMIT_NOFILE from (10,30000) to (30000,30000)",
+                                 "other error during setrlimit, leaving it alone")
+
+                    for maxlimit in [40000, 20000, 9000, 2000, 1000]:
+                        def setrlimit(which, newlimit):
+                            if newlimit[0] > maxlimit:
+                                raise ValueError("nope")
+                            return None
+                        calls = []
+                        expected = []
+                        for tries in [30000, 10000, 3200, 1024]:
+                            calls.append(mock.call(NF, (tries, 30000)))
+                            expected.append("changing RLIMIT_NOFILE from (10,30000) to (%d,30000)" % tries)
+                            if tries > maxlimit:
+                                expected.append("error during setrlimit: nope")
+                            else:
+                                expected.append("setrlimit successful")
+                                break
+                        else:
+                            expected.append("unable to change rlimit, leaving it alone")
+
+                        with patch_s("setrlimit", side_effect=setrlimit) as sr:
+                            s.increase_rlimits()
+                        self.assertEqual(sr.mock_calls, calls)
+                        checklog(*expected)
 
 class _Util:
     def _nameplate(self, app, name):
@@ -1313,7 +1385,7 @@ class Summary(unittest.TestCase):
 
 class DumpStats(unittest.TestCase):
     def test_nostats(self):
-        rs = server.RelayServer(str("tcp:0"), str("tcp:0"), None)
+        rs = easy_relay()
         # with no ._stats_file, this should do nothing
         rs.dump_stats(1, 1)
 
@@ -1321,8 +1393,7 @@ class DumpStats(unittest.TestCase):
         basedir = self.mktemp()
         os.mkdir(basedir)
         fn = os.path.join(basedir, "stats.json")
-        rs = server.RelayServer(str("tcp:0"), str("tcp:0"), None,
-                                stats_file=fn)
+        rs = easy_relay(stats_file=fn)
         now = 1234
         validity = 500
         rs.dump_stats(now, validity)
@@ -1339,12 +1410,7 @@ class Startup(unittest.TestCase):
 
     @mock.patch('wormhole.server.server.log')
     def test_empty(self, fake_log):
-        rs = server.RelayServer(
-            str("tcp:0"),
-            str("tcp:0"),
-            None,
-            allow_list=False,
-        )
+        rs = easy_relay(allow_list=False)
         rs.startService()
         try:
             logs = '\n'.join([call[1][0] for call in fake_log.mock_calls])
@@ -1353,3 +1419,17 @@ class Startup(unittest.TestCase):
             )
         finally:
             rs.stopService()
+
+
+class WebSocketProtocolOptions(unittest.TestCase):
+    @mock.patch('wormhole.server.server.WebSocketRendezvousFactory')
+    def test_set(self, fake_factory):
+        easy_relay(
+            websocket_protocol_options=[
+                ("foo", "bar"),
+            ]
+        )
+        self.assertEqual(
+            mock.call().setProtocolOptions(foo="bar"),
+            fake_factory.mock_calls[1],
+        )

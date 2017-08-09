@@ -1,9 +1,9 @@
-from __future__ import print_function, unicode_literals
+from __future__ import print_function
 import os, sys, re, io, zipfile, six, stat
 from textwrap import fill, dedent
 from humanize import naturalsize
 import mock
-import click.testing
+from click.testing import CliRunner
 from zope.interface import implementer
 from twisted.trial import unittest
 from twisted.python import procutils, log
@@ -335,7 +335,7 @@ class PregeneratedCode(ServerBase, ScriptsBase, unittest.TestCase):
             cfg.relay_url = self.relayurl
             cfg.transit_helper = ""
             cfg.listen = True
-            cfg.code = "1-abc"
+            cfg.code = u"1-abc"
             cfg.stdout = io.StringIO()
             cfg.stderr = io.StringIO()
 
@@ -350,7 +350,7 @@ class PregeneratedCode(ServerBase, ScriptsBase, unittest.TestCase):
         elif mode in ("file", "empty-file"):
             if mode == "empty-file":
                 message = ""
-            send_filename = "testfil\u00EB" # e-with-diaeresis
+            send_filename = u"testfil\u00EB" # e-with-diaeresis
             with open(os.path.join(send_dir, send_filename), "w") as f:
                 f.write(message)
             send_cfg.what = send_filename
@@ -358,7 +358,7 @@ class PregeneratedCode(ServerBase, ScriptsBase, unittest.TestCase):
 
             recv_cfg.accept_file = False if mock_accept else True
             if override_filename:
-                recv_cfg.output_file = receive_filename = "outfile"
+                recv_cfg.output_file = receive_filename = u"outfile"
             if overwrite:
                 recv_cfg.output_file = receive_filename
                 existing_file = os.path.join(receive_dir, receive_filename)
@@ -374,11 +374,11 @@ class PregeneratedCode(ServerBase, ScriptsBase, unittest.TestCase):
             # cd $receive_dir && wormhole receive
             # expect: $receive_dir/$dirname/[12345]
 
-            send_dirname = "testdir"
+            send_dirname = u"testdir"
             def message(i):
                 return "test message %d\n" % i
-            os.mkdir(os.path.join(send_dir, "middle"))
-            source_dir = os.path.join(send_dir, "middle", send_dirname)
+            os.mkdir(os.path.join(send_dir, u"middle"))
+            source_dir = os.path.join(send_dir, u"middle", send_dirname)
             os.mkdir(source_dir)
             modes = {}
             for i in range(5):
@@ -388,7 +388,7 @@ class PregeneratedCode(ServerBase, ScriptsBase, unittest.TestCase):
                 if i == 3:
                     os.chmod(path, 0o755)
                 modes[i] = stat.S_IMODE(os.stat(path).st_mode)
-            send_dirname_arg = os.path.join("middle", send_dirname)
+            send_dirname_arg = os.path.join(u"middle", send_dirname)
             if addslash:
                 send_dirname_arg += os.sep
             send_cfg.what = send_dirname_arg
@@ -396,7 +396,7 @@ class PregeneratedCode(ServerBase, ScriptsBase, unittest.TestCase):
 
             recv_cfg.accept_file = False if mock_accept else True
             if override_filename:
-                recv_cfg.output_file = receive_dirname = "outdir"
+                recv_cfg.output_file = receive_dirname = u"outdir"
             if overwrite:
                 recv_cfg.output_file = receive_dirname
                 os.mkdir(os.path.join(receive_dir, receive_dirname))
@@ -539,26 +539,26 @@ class PregeneratedCode(ServerBase, ScriptsBase, unittest.TestCase):
                                                         KE=key_established)
             self.failUnlessEqual(send_stderr, expected)
         elif mode == "file":
-            self.failUnlessIn("Sending {size:s} file named '{name}'{NL}"
+            self.failUnlessIn(u"Sending {size:s} file named '{name}'{NL}"
                               .format(size=naturalsize(len(message)),
                                       name=send_filename,
                                       NL=NL), send_stderr)
-            self.failUnlessIn("On the other computer, please run: "
+            self.failUnlessIn(u"On the other computer, please run: "
                               "wormhole receive{NL}"
                               "Wormhole code is: {code}{NL}{NL}"
                               .format(code=send_cfg.code, NL=NL),
                               send_stderr)
-            self.failUnlessIn("File sent.. waiting for confirmation{NL}"
+            self.failUnlessIn(u"File sent.. waiting for confirmation{NL}"
                               "Confirmation received. Transfer complete.{NL}"
                               .format(NL=NL), send_stderr)
         elif mode == "directory":
-            self.failUnlessIn("Sending directory", send_stderr)
-            self.failUnlessIn("named 'testdir'", send_stderr)
-            self.failUnlessIn("On the other computer, please run: "
+            self.failUnlessIn(u"Sending directory", send_stderr)
+            self.failUnlessIn(u"named 'testdir'", send_stderr)
+            self.failUnlessIn(u"On the other computer, please run: "
                               "wormhole receive{NL}"
                               "Wormhole code is: {code}{NL}{NL}"
                               .format(code=send_cfg.code, NL=NL), send_stderr)
-            self.failUnlessIn("File sent.. waiting for confirmation{NL}"
+            self.failUnlessIn(u"File sent.. waiting for confirmation{NL}"
                               "Confirmation received. Transfer complete.{NL}"
                               .format(NL=NL), send_stderr)
 
@@ -573,10 +573,10 @@ class PregeneratedCode(ServerBase, ScriptsBase, unittest.TestCase):
                 self.assertEqual(receive_stderr, "Waiting for sender...\n")
         elif mode == "file":
             self.failUnlessEqual(receive_stdout, "")
-            self.failUnlessIn("Receiving file ({size:s}) into: {name}"
+            self.failUnlessIn(u"Receiving file ({size:s}) into: {name}"
                               .format(size=naturalsize(len(message)),
                                       name=receive_filename), receive_stderr)
-            self.failUnlessIn("Received file written to ", receive_stderr)
+            self.failUnlessIn(u"Received file written to ", receive_stderr)
             fn = os.path.join(receive_dir, receive_filename)
             self.failUnless(os.path.exists(fn))
             with open(fn, "r") as f:
@@ -587,7 +587,7 @@ class PregeneratedCode(ServerBase, ScriptsBase, unittest.TestCase):
                     .format(name=receive_dirname))
             self.failUnless(re.search(want, receive_stderr),
                             (want, receive_stderr))
-            self.failUnlessIn("Received files written to {name}"
+            self.failUnlessIn(u"Received files written to {name}"
                               .format(name=receive_dirname), receive_stderr)
             fn = os.path.join(receive_dir, receive_dirname)
             self.failUnless(os.path.exists(fn), fn)
@@ -649,7 +649,7 @@ class PregeneratedCode(ServerBase, ScriptsBase, unittest.TestCase):
             cfg.relay_url = self.relayurl
             cfg.transit_helper = ""
             cfg.listen = False
-            cfg.code = "1-abc"
+            cfg.code = u"1-abc"
             cfg.stdout = io.StringIO()
             cfg.stderr = io.StringIO()
 
@@ -861,7 +861,7 @@ class NotWelcome(ServerBase, unittest.TestCase):
     @inlineCallbacks
     def test_sender(self):
         self.cfg.text = "hi"
-        self.cfg.code = "1-abc"
+        self.cfg.code = u"1-abc"
 
         send_d = cmd_send.send(self.cfg)
         f = yield self.assertFailure(send_d, WelcomeError)
@@ -869,7 +869,7 @@ class NotWelcome(ServerBase, unittest.TestCase):
 
     @inlineCallbacks
     def test_receiver(self):
-        self.cfg.code = "1-abc"
+        self.cfg.code = u"1-abc"
 
         receive_d = cmd_receive.receive(self.cfg)
         f = yield self.assertFailure(receive_d, WelcomeError)
@@ -892,7 +892,7 @@ class NoServer(ServerBase, unittest.TestCase):
         cfg.stderr = io.StringIO()
 
         cfg.text = "hi"
-        cfg.code = "1-abc"
+        cfg.code = u"1-abc"
 
         send_d = cmd_send.send(cfg)
         e = yield self.assertFailure(send_d, ServerConnectionError)
@@ -924,7 +924,7 @@ class NoServer(ServerBase, unittest.TestCase):
         cfg.stdout = io.StringIO()
         cfg.stderr = io.StringIO()
 
-        cfg.code = "1-abc"
+        cfg.code = u"1-abc"
 
         receive_d = cmd_receive.receive(cfg)
         e = yield self.assertFailure(receive_d, ServerConnectionError)
@@ -948,7 +948,7 @@ class Cleanup(ServerBase, unittest.TestCase):
         # the rendezvous channel should be deleted after success
         cfg = self.make_config()
         cfg.text = "hello"
-        cfg.code = "1-abc"
+        cfg.code = u"1-abc"
 
         send_d = cmd_send.send(cfg)
         receive_d = cmd_receive.receive(cfg)
@@ -965,11 +965,11 @@ class Cleanup(ServerBase, unittest.TestCase):
         # deleted
         send_cfg = self.make_config()
         send_cfg.text = "secret message"
-        send_cfg.code = "1-abc"
+        send_cfg.code = u"1-abc"
         send_d = cmd_send.send(send_cfg)
 
         rx_cfg = self.make_config()
-        rx_cfg.code = "1-WRONG"
+        rx_cfg.code = u"1-WRONG"
         receive_d = cmd_receive.receive(rx_cfg)
 
         # both sides should be capable of detecting the mismatch
@@ -982,7 +982,7 @@ class Cleanup(ServerBase, unittest.TestCase):
 class ExtractFile(unittest.TestCase):
     def test_filenames(self):
         args = mock.Mock()
-        args.relay_url = ""
+        args.relay_url = u""
         ef = cmd_receive.Receiver(args)._extract_file
         extract_dir = os.path.abspath(self.mktemp())
 
@@ -1037,8 +1037,8 @@ class AppID(ServerBase, unittest.TestCase):
     def test_override(self):
         # make sure we use the overridden appid, not the default
         self.cfg.text = "hello"
-        self.cfg.appid = "appid2"
-        self.cfg.code = "1-abc"
+        self.cfg.appid = u"appid2"
+        self.cfg.code = u"1-abc"
 
         send_d = cmd_send.send(self.cfg)
         receive_d = cmd_receive.receive(self.cfg)
@@ -1163,7 +1163,7 @@ class Dispatch(unittest.TestCase):
         # out here.
         f = mock.Mock()
         def mock_print(file):
-            file.write("<TRACEBACK>\n")
+            file.write(u"<TRACEBACK>\n")
         f.printTraceback = mock_print
         with mock.patch("wormhole.cli.cli.Failure", return_value=f):
             yield self.assertFailure(cli._dispatch_command(reactor, cfg, fake),
@@ -1171,6 +1171,24 @@ class Dispatch(unittest.TestCase):
         expected = "<TRACEBACK>\nERROR: abcd\n"
         self.assertEqual(cfg.stderr.getvalue(), expected)
 
+class Help(unittest.TestCase):
+    def _check_top_level_help(self, got):
+        # the main wormhole.cli.cli.wormhole docstring should be in the
+        # output, but formatted differently
+        self.assertIn("Create a Magic Wormhole and communicate through it.",
+                      got)
+        self.assertIn("--relay-url", got)
+        self.assertIn("Receive a text message, file, or directory", got)
+
+    def test_help(self):
+        result = CliRunner().invoke(cli.wormhole, ["help"])
+        self._check_top_level_help(result.output)
+        self.assertEqual(result.exit_code, 0)
+
+    def test_dash_dash_help(self):
+        result = CliRunner().invoke(cli.wormhole, ["--help"])
+        self._check_top_level_help(result.output)
+        self.assertEqual(result.exit_code, 0)
 
 class FakeConfig(object):
     no_daemon = True
@@ -1187,7 +1205,7 @@ class FakeConfig(object):
 class Server(unittest.TestCase):
 
     def setUp(self):
-        self.runner = click.testing.CliRunner()
+        self.runner = CliRunner()
 
     @mock.patch('wormhole.server.cmd_server.twistd')
     def test_server_disallow_list(self, fake_twistd):
@@ -1220,3 +1238,48 @@ class Server(unittest.TestCase):
         relay = plugin.makeService(None)
         self.assertEqual('relay.sqlite', relay._db_url)
         self.assertEqual('stats.json', relay._stats_file)
+
+    @mock.patch("wormhole.server.cmd_server.start_server")
+    def test_websocket_protocol_options(self, fake_start_server):
+        result = self.runner.invoke(
+            server, [
+                'start',
+                '--websocket-protocol-option=a=3',
+                '--websocket-protocol-option=b=true',
+                '--websocket-protocol-option=c=3.5',
+                '--websocket-protocol-option=d=["foo","bar"]',
+                '--websocket-protocol-option', 'e=["foof","barf"]',
+            ])
+        self.assertEqual(0, result.exit_code)
+        cfg = fake_start_server.mock_calls[0][1][0]
+        self.assertEqual(
+            cfg.websocket_protocol_option,
+            [("a", 3), ("b", True), ("c", 3.5), ("d", ['foo', 'bar']),
+             ("e", ['foof', 'barf']),
+             ],
+        )
+
+    def test_broken_websocket_protocol_options(self):
+        result = self.runner.invoke(
+            server, [
+                'start',
+                '--websocket-protocol-option=a',
+            ])
+        self.assertNotEqual(0, result.exit_code)
+        self.assertIn(
+            'Error: Invalid value for "--websocket-protocol-option": '
+            'format options as OPTION=VALUE',
+            result.output,
+        )
+
+        result = self.runner.invoke(
+            server, [
+                'start',
+                '--websocket-protocol-option=a=foo',
+            ])
+        self.assertNotEqual(0, result.exit_code)
+        self.assertIn(
+            'Error: Invalid value for "--websocket-protocol-option": '
+            'could not parse JSON value for a',
+            result.output,
+        )
